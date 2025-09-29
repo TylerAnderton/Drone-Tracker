@@ -1,6 +1,21 @@
 /.venv
 .env
 
-__pycache__
-
 /data
+
+# Artifacts and outputs
+runs/
+outputs/
+assets/
+
+# Model files
+models/weights/
+models/export/
+*.engine
+*.onnx
+*.trt
+*.pt
+*.pth
+
+# Python cache
+**/__pycache__/
