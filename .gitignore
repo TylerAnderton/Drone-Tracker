@@ -14,6 +14,8 @@ models/export/
 *.engine
 *.onnx
 *.trt
+*.pt
+*.pth
 
 # Python cache
 **/__pycache__/

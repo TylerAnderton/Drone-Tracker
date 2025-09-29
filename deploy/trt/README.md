@@ -2,13 +2,13 @@
 
 - Export FP16 engine (preferred on RTX 4070 SUPER):
 ```bash
-python -m deploy.trt.export --model yolov8n.pt --imgsz 640 --half --device 0
+python -m deploy.trt.export --half
 # -> models/export/yolov8n.engine
 ```
 
 - Optional INT8 with calibration images (prepare a directory of Anti-UAV frames):
 ```bash
-python -m deploy.trt.export --model yolov8n.pt --imgsz 640 --int8 --device 0
+python -m deploy.trt.export --int8
 ```
 
 - Alternative: trtexec (when you want full control):

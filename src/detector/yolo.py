@@ -12,22 +12,16 @@ class YoloDetector:
     def __init__(self, model_path: str, device: str = "0"):
         self.model_path = model_path
         self.device = device
-        self.model = YOLO(model_path)
+        # Explicitly set task to suppress Ultralytics warning for .engine files
+        try:
+            self.model = YOLO(model_path, task="detect")
+        except TypeError:
+            # Fallback if older Ultralytics doesn't support the 'task' kwarg
+            self.model = YOLO(model_path)
 
     def warmup(self, source: str, imgsz: int = 640, conf: float = 0.25):
-        try:
-            _ = self.model.predict(
-                source=Path(source).as_posix(),
-                imgsz=imgsz,
-                conf=conf,
-                device=self.device,
-                stream=False,
-                verbose=False,
-                max_det=100,
-                vid_stride=30,
-            )
-        except Exception:
-            pass
+        """No-op warmup to avoid non-stream warnings; retained for API compatibility."""
+        return
 
     def track(
         self,

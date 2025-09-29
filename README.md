@@ -21,31 +21,27 @@ pip install -r requirements.txt
 2) (Optional) Export TensorRT engine (FP16)
   
   ```bash
-  python -m deploy.trt.export --model yolov8n.pt --imgsz 640 --half --device 0
+  python -m deploy.trt.export --half
   # -> models/export/yolov8n.engine
   ```
 
 3) Run detection + tracking on a video
   
   ```bash
-  # PyTorch .pt
-  python -m src.app.run_demo \
-    --model yolov8n.pt \
-    --source /path/to/video.mp4 \
-    --imgsz 640 --conf 0.25 --device 0 --save
+  # PyTorch (uses config/runtime.yaml defaults)
+  python -m src.app.run_demo --source /path/to/video.mp4 --save
 
-  # TensorRT .engine
-  python -m src.app.run_demo \
-    --model models/export/yolov8n.engine \
-    --source /path/to/video.mp4 \
-    --imgsz 640 --conf 0.25 --device 0 --save
+  # TensorRT (override model only)
+  python -m src.app.run_demo --model models/export/yolov8n.engine --source /path/to/video.mp4 --save
   ```
 
 4) Benchmark latency/FPS
   
   ```bash
-  python -m src.app.metrics --model yolov8n.pt --source /path/to/video.mp4 --imgsz 640 --conf 0.25 --device 0 --mode detect
-  python -m src.app.metrics --model models/export/yolov8n.engine --source /path/to/video.mp4 --imgsz 640 --conf 0.25 --device 0 --mode track
+  # PyTorch (defaults)
+  python -m src.app.metrics --source /path/to/video.mp4 --mode detect
+  # TensorRT
+  python -m src.app.metrics --model models/export/yolov8n.engine --source /path/to/video.mp4 --mode track
   ```
 
 ## Notes on TensorRT
@@ -102,15 +98,15 @@ Recommended commands using the new entry points:
   python -m src.app.frames_to_video --input "/data/Anti-UAV-RGBT/<seq>/visible/*.jpg" --fps 25
   
   # 2) Export FP16 TensorRT engine
-  python -m deploy.trt.export --model yolov8n.pt --img sz 640 --half --device 0
+  python -m deploy.trt.export --half
   
   # 3) Run the end-to-end demo (PyTorch or TensorRT)
-  python -m src.app.run_demo --model yolov8n.pt --source outputs/<seq>.mp4 --imgsz 640 --conf 0.25 --device 0 --save
-  python -m src.app.run_demo --model models/export/yolov8n.engine --source outputs/<seq>.mp4 --imgsz 640 --conf 0.25 --device 0 --save
+  python -m src.app.run_demo --source outputs/<seq>.mp4 --save
+  python -m src.app.run_demo --model models/export/yolov8n.engine --source outputs/<seq>.mp4 --save
   
   # 4) Benchmark detect/track latency
-  python -m src.app.metrics --model yolov8n.pt --source outputs/<seq>.mp4 --mode detect --imgsz 640 --conf 0.25 --device 0
-  python -m src.app.metrics --model models/export/yolov8n.engine --source outputs/<seq>.mp4 --mode track --imgsz 640 --conf 0.25 --device 0
+  python -m src.app.metrics --source outputs/<seq>.mp4 --mode detect
+  python -m src.app.metrics --model models/export/yolov8n.engine --source outputs/<seq>.mp4 --mode track
   ```
 
 Notes:

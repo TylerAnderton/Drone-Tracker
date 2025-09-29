@@ -4,3 +4,7 @@ iou: 0.45
 device: "0"
 tracker: "config/bytetrack.yaml"
 save: true
+model: "yolov8n.pt"
+fps_out: 20
+vid_stride: 1
+calib: "config/calib.yaml"
