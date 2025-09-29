@@ -1,0 +1,118 @@
+# Bullfrog Mini: Edge-Deployable Drone Detection & Tracking
+  
+  A minimal, interview-ready pipeline to run real-time object detection & tracking on recorded videos, optimized with TensorRT on NVIDIA GPUs.
+  
+  - Detector: Ultralytics YOLOv8 (n/s variants recommended)
+  - Tracker: ByteTrack (via Ultralytics tracking mode)
+  - Optimizer: TensorRT (FP16 by default; INT8 optional)
+  - Input: recorded video files (webcam optional later)
+
+## Quickstart
+
+1) Create env and install deps
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -U pip
+pip install -r requirements.txt
+```
+
+2) (Optional) Export TensorRT engine (FP16)
+  
+  ```bash
+  python -m deploy.trt.export --model yolov8n.pt --imgsz 640 --half --device 0
+  # -> models/export/yolov8n.engine
+  ```
+
+3) Run detection + tracking on a video
+  
+  ```bash
+  # PyTorch .pt
+  python -m src.app.run_demo \
+    --model yolov8n.pt \
+    --source /path/to/video.mp4 \
+    --imgsz 640 --conf 0.25 --device 0 --save
+
+  # TensorRT .engine
+  python -m src.app.run_demo \
+    --model models/export/yolov8n.engine \
+    --source /path/to/video.mp4 \
+    --imgsz 640 --conf 0.25 --device 0 --save
+  ```
+
+4) Benchmark latency/FPS
+  
+  ```bash
+  python -m src.app.metrics --model yolov8n.pt --source /path/to/video.mp4 --imgsz 640 --conf 0.25 --device 0 --mode detect
+  python -m src.app.metrics --model models/export/yolov8n.engine --source /path/to/video.mp4 --imgsz 640 --conf 0.25 --device 0 --mode track
+  ```
+
+## Notes on TensorRT
+
+- You must have NVIDIA drivers, CUDA and TensorRT installed for `.engine` inference.
+- Ultralytics can export to TensorRT directly. INT8 requires a calibrator; use domain frames (e.g., Anti-UAV) for best results.
+## Config
+
+See `config/runtime.yaml` for default thresholds and runtime parameters.
+
+## Structure
+  
+  ```
+docs/
+  design.md
+  calibration.md
+data/
+  raw/
+  calib/
+training/
+  yolovX/
+models/
+  weights/
+  export/
+src/
+  detector/
+    yolo.py
+  tracker/
+  calib/
+    cli_calibrate.py
+  control/
+    mapping.py
+  app/
+    run_demo.py
+    metrics.py
+    frames_to_video.py
+deploy/
+  trt/
+    export.py
+    README.md
+config/
+  runtime.yaml
+  bytetrack.yaml
+  calib.yaml
+utils/
+  profiling.py
+  geometry.py
+  ```
+
+Recommended commands using the new entry points:
+  
+  ```bash
+  # 1) (Optional) Convert Anti-UAV frame folders to MP4 for quick testing
+  python -m src.app.frames_to_video --input "/data/Anti-UAV-RGBT/<seq>/visible/*.jpg" --fps 25
+  
+  # 2) Export FP16 TensorRT engine
+  python -m deploy.trt.export --model yolov8n.pt --img sz 640 --half --device 0
+  
+  # 3) Run the end-to-end demo (PyTorch or TensorRT)
+  python -m src.app.run_demo --model yolov8n.pt --source outputs/<seq>.mp4 --imgsz 640 --conf 0.25 --device 0 --save
+  python -m src.app.run_demo --model models/export/yolov8n.engine --source outputs/<seq>.mp4 --imgsz 640 --conf 0.25 --device 0 --save
+  
+  # 4) Benchmark detect/track latency
+  python -m src.app.metrics --model yolov8n.pt --source outputs/<seq>.mp4 --mode detect --imgsz 640 --conf 0.25 --device 0
+  python -m src.app.metrics --model models/export/yolov8n.engine --source outputs/<seq>.mp4 --mode track --imgsz 640 --conf 0.25 --device 0
+  ```
+
+Notes:
+- Ensure NVIDIA drivers, CUDA, and TensorRT are installed for `.engine` inference.
+- Use Anti-UAV frames for INT8 calibration later if needed.
