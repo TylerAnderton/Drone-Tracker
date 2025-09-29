@@ -1,4 +1,4 @@
-# Bullfrog Mini: Edge-Deployable Drone Detection & Tracking
+# Edge-Deployable Drone Detection & Tracking
   
   A minimal, interview-ready pipeline to run real-time object detection & tracking on recorded videos, optimized with TensorRT on NVIDIA GPUs.
   
