@@ -4,6 +4,7 @@ import os
 import cv2
 import numpy as np
 import yaml
+import time
 from src.detector.yolo import YoloDetector
 from src.control.mapping import detection_center_to_angles
 
@@ -21,6 +22,8 @@ def parse_args():
     p.add_argument("--calib", type=str, default=None, help="Calibration YAML for yaw/pitch mapping")
     p.add_argument("--save", action="store_true", help="Save annotated MP4 under outputs/")
     p.add_argument("--fps_out", type=float, default=None, help="Force output FPS (0=use source FPS or fallback)")
+    p.add_argument("--display_max_w", type=int, default=1600, help="Max display window width (no effect on saved video)")
+    p.add_argument("--display_max_h", type=int, default=900, help="Max display window height (no effect on saved video)")
     return p.parse_args()
 
 
@@ -77,6 +80,10 @@ def main():
         #         pass
 
     frames = 0
+    # Real-time playback target and latency tracking
+    target_dt = 1.0 / max(1, fps)
+    t_prev = time.perf_counter()
+    next_frame_time = t_prev + target_dt
     for r in det.track(
         source=Path(args.source).as_posix(),
         imgsz=imgsz,
@@ -91,11 +98,16 @@ def main():
         if frame is None:
             continue
 
+        # End-to-end per-frame latency (time between results)
+        t_now = time.perf_counter()
+        lat_ms = (t_now - t_prev) * 1000.0
+        t_prev = t_now
+
         # Initialize writer lazily with frame size
-        if args.save and writer is None:
-            h, w = frame.shape[:2]
-            fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-            writer = cv2.VideoWriter(str(out_path), fourcc, fps, (w, h))
+        # if args.save and writer is None:
+        #     h, w = frame.shape[:2]
+        #     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        #     writer = cv2.VideoWriter(str(out_path), fourcc, fps, (w, h))
 
         # Start with default YOLO plotted overlays (boxes, IDs)
         vis = r.plot()  # returns BGR image with drawings
@@ -124,8 +136,45 @@ def main():
                     # If calibration missing/invalid, skip overlay for this box
                     pass
 
+        # Overlay latency (bottom-right with padded background)
+        txt = f"{lat_ms:.1f} ms"
+        (tw, th), baseline = cv2.getTextSize(txt, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
+        m = 10
+        x = int(vis.shape[1] - tw - m)
+        y = int(vis.shape[0] - m)
+        cv2.rectangle(vis, (x - 6, y - th - 6), (x + tw + 6, y + baseline + 6), (0, 0, 0), thickness=-1)
+        cv2.putText(vis, txt, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2, cv2.LINE_AA)
+
+        # Build side-by-side (INPUT | OUTPUT) frame for saving and display
+        side = np.hstack([frame, vis])
+
+        # Initialize writer lazily with side-by-side frame size
+        if args.save and writer is None:
+            sh, sw = side.shape[:2]
+            fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+            writer = cv2.VideoWriter(str(out_path), fourcc, fps, (sw, sh))
+
         if args.save and writer is not None:
-            writer.write(vis)
+            # writer.write(vis)
+            writer.write(side)
+
+        # Show side-by-side (input | output) in real-time
+        try:
+            # Fit display into user-defined bounds without altering saved output quality
+            sh, sw = side.shape[:2]
+            scale = min(args.display_max_w / max(1, sw), args.display_max_h / max(1, sh), 1.0)
+            disp = side if scale >= 0.999 else cv2.resize(side, (int(sw * scale), int(sh * scale)), interpolation=cv2.INTER_AREA)
+            cv2.imshow("Drone tracking live", disp)
+            # Throttle to target FPS
+            now2 = time.perf_counter()
+            delay_ms = int(max(0.0, (next_frame_time - now2)) * 1000)
+            key = cv2.waitKey(max(1, delay_ms)) & 0xFF
+            next_frame_time += target_dt
+            if key in (27, ord('q')):
+                break
+        except Exception:
+            # In headless environments, imshow may fail; continue without display
+            pass
 
         frames += 1
         if frames % 100 == 0:
@@ -135,7 +184,8 @@ def main():
         writer.release()
         print(f"[run_demo] Saved annotated video: {out_path}")
 
-    print(f"[run_demo] Completed {frames} frames (model={args.model}, imgsz={args.imgsz})")
+    cv2.destroyAllWindows()
+    print(f"[run_demo] Completed {frames} frames (model={model_path}, imgsz={imgsz})")
 
 
 if __name__ == "__main__":
