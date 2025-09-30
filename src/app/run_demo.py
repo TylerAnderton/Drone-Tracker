@@ -5,6 +5,7 @@ import cv2
 import numpy as np
 import yaml
 import time
+import torch
 from src.detector.yolo import YoloDetector
 from src.control.mapping import detection_center_to_angles
 
@@ -54,6 +55,24 @@ def main():
 
     det = YoloDetector(model_path, device=device)
     det.warmup(args.source, imgsz=imgsz, conf=conf)
+
+    # Backend and GPU verification prints
+    backend = "tensorrt" if str(model_path).lower().endswith(".engine") else "pytorch"
+    print(f"[device] backend={backend}, device={device}")
+    if backend == "pytorch":
+        try:
+            cuda_ok = torch.cuda.is_available()
+            print(f"[device] torch.cuda.is_available()={cuda_ok}")
+            if cuda_ok and device != "cpu":
+                try:
+                    dev_index = int(device) if str(device).isdigit() else torch.cuda.current_device()
+                except Exception:
+                    dev_index = torch.cuda.current_device()
+                props = torch.cuda.get_device_properties(dev_index)
+                total_gb = props.total_memory / (1024**3)
+                print(f"[device] torch device={dev_index} name={props.name} vram_total={total_gb:.1f} GB")
+        except Exception:
+            pass
 
     # Prepare output writer if saving
     writer = None
