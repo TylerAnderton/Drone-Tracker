@@ -2,6 +2,7 @@ import argparse
 from pathlib import Path
 from ultralytics import YOLO
 import yaml
+import shutil
 
 
 def parse_args():
@@ -50,13 +51,60 @@ def main():
     )
     out_path = Path(out_path)
     export_dir = Path("models/export")
+    weights_dir = Path("models/weights")
     export_dir.mkdir(parents=True, exist_ok=True)
+    weights_dir.mkdir(parents=True, exist_ok=True)
+
+    # Move final engine to models/export
     target = export_dir / out_path.name
     if out_path.resolve() != target.resolve():
+        # Prefer move to keep root clean; fallback to copy+remove
         try:
-            target.write_bytes(out_path.read_bytes())
+            out_path.replace(target)
         except Exception:
-            pass
+            try:
+                shutil.copy2(out_path, target)
+                try:
+                    out_path.unlink()
+                except Exception:
+                    pass
+            except Exception:
+                pass
+
+    # Also move common side artifacts created by export or download into proper folders
+    stem = out_path.stem  # e.g., yolov8n
+    root = Path.cwd()
+    onnx_src = root / f"{stem}.onnx"
+    pt_src = root / f"{stem}.pt"
+    onnx_dst = export_dir / onnx_src.name
+    pt_dst = weights_dir / pt_src.name
+    # Move ONNX if created in root
+    if onnx_src.exists() and onnx_src.resolve() != onnx_dst.resolve():
+        try:
+            onnx_src.replace(onnx_dst)
+        except Exception:
+            try:
+                shutil.copy2(onnx_src, onnx_dst)
+                try:
+                    onnx_src.unlink()
+                except Exception:
+                    pass
+            except Exception:
+                pass
+    # Move downloaded PT checkpoint (for alias models like 'yolov8n.pt') to models/weights
+    if pt_src.exists() and pt_src.resolve() != pt_dst.resolve():
+        try:
+            pt_src.replace(pt_dst)
+        except Exception:
+            try:
+                shutil.copy2(pt_src, pt_dst)
+                try:
+                    pt_src.unlink()
+                except Exception:
+                    pass
+            except Exception:
+                pass
+
     print(f"[deploy.trt.export] Engine: {target.as_posix() if target.exists() else out_path.as_posix()}")
 
 

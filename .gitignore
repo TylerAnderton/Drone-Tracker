@@ -1,7 +1,7 @@
-/.venv
+.venv/
 .env
 
-/data
+data/
 
 # Artifacts and outputs
 runs/
@@ -9,8 +9,7 @@ outputs/
 assets/
 
 # Model files
-models/weights/
-models/export/
+models/
 *.engine
 *.onnx
 *.trt

@@ -3,17 +3,19 @@ import time
 from pathlib import Path
 import numpy as np
 from ultralytics import YOLO
+import yaml
 
 
 def parse_args():
     p = argparse.ArgumentParser(description="Benchmark YOLOv8 detection/tracking (PyTorch or TensorRT)")
-    p.add_argument("--model", type=str, default="yolov8n.pt", help="Path to .pt or TensorRT .engine model")
+    p.add_argument("--config", type=str, default="config/runtime.yaml", help="Runtime YAML config")
+    p.add_argument("--model", type=str, default=None, help="Path to .pt or TensorRT .engine model")
     p.add_argument("--source", type=str, required=True, help="Video path")
-    p.add_argument("--imgsz", type=int, default=640)
-    p.add_argument("--conf", type=float, default=0.25)
-    p.add_argument("--device", type=str, default="0")
-    p.add_argument("--mode", type=str, choices=["detect", "track"], default="detect")
-    p.add_argument("--tracker", type=str, default="config/bytetrack.yaml")
+    p.add_argument("--imgsz", type=int, default=None)
+    p.add_argument("--conf", type=float, default=None)
+    p.add_argument("--device", type=str, default=None)
+    p.add_argument("--mode", type=str, choices=["detect", "track"], default="track")
+    p.add_argument("--tracker", type=str, default=None)
     return p.parse_args()
 
 
@@ -58,14 +60,39 @@ def bench_track(model: YOLO, source: str, imgsz: int, conf: float, device: str, 
 
 def main():
     args = parse_args()
-    model = YOLO(args.model)
+    # Load runtime config and merge with CLI (CLI overrides when provided)
+    cfg = {}
+    try:
+        with open(args.config, "r") as f:
+            cfg = yaml.safe_load(f) or {}
+    except Exception:
+        cfg = {}
+
+    def pick(key, default=None):
+        val = getattr(args, key, None)
+        if val is None:
+            return cfg.get(key, default)
+        return val
+
+    model_path = pick("model", "yolov8n.pt")
+    imgsz = int(pick("imgsz", 640))
+    conf = float(pick("conf", 0.25))
+    device = str(pick("device", "0"))
+    tracker = pick("tracker", "config/bytetrack.yaml")
+
+    # Load model with explicit task to suppress warnings for .engine
+    try:
+        model = YOLO(model_path, task="detect")
+    except TypeError:
+        model = YOLO(model_path)
+
     source = Path(args.source).as_posix()
 
     if args.mode == "detect":
-        bench_detect(model, source, args.imgsz, args.conf, args.device)
+        bench_detect(model, source, imgsz, conf, device)
     else:
         t0 = time.perf_counter()
-        bench_track(model, source, args.imgsz, args.conf, args.device, args.tracker)
+        bench_track(model, source, imgsz, conf, device, tracker)
         dt = time.perf_counter() - t0
         print(f"[track] total_time={dt:.2f}s")
 
