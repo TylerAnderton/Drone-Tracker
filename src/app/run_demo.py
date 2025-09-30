@@ -109,8 +109,9 @@ def main():
         conf=conf,
         iou=iou,
         tracker_cfg=tracker_cfg,
-        save=False,
+        save=False, # Should this match config? # TODO: Investigate save parameters https://docs.ultralytics.com/modes/predict/#inference-arguments
         persist=True,
+        # stream=True, # Returns generator of results # Unexpected argument for .track()??
     ):
         # r.orig_img: original BGR frame
         frame = r.orig_img
@@ -121,6 +122,19 @@ def main():
         t_now = time.perf_counter()
         lat_ms = (t_now - t_prev) * 1000.0
         t_prev = t_now
+
+        # Pipeline latency (decode + preprocess + inference + NMS + tracking) from Ultralytics profiling
+        # Prefer internal per-frame timings when available; fallback to inter-result time
+        pipe_ms = None
+        try:
+            sp = getattr(r, 'speed', None)
+            if isinstance(sp, dict) and sp:
+                # Sum all measured stages (values are in milliseconds)
+                pipe_ms = sum(float(v) for v in sp.values() if v is not None)
+        except Exception:
+            pipe_ms = None
+        if pipe_ms is None:
+            pipe_ms = lat_ms
 
         # Initialize writer lazily with frame size
         # if args.save and writer is None:
@@ -156,7 +170,8 @@ def main():
                     pass
 
         # Overlay latency (bottom-right with padded background)
-        txt = f"{lat_ms:.1f} ms"
+        # txt = f"{lat_ms:.1f} ms"
+        txt = f"{pipe_ms:.1f} ms"
         (tw, th), baseline = cv2.getTextSize(txt, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
         m = 10
         x = int(vis.shape[1] - tw - m)
