@@ -93,7 +93,8 @@ def producer(
     if cap_fps:
         cap.set(cv2.CAP_PROP_FPS, float(cap_fps))
 
-    print(f"[producer] camera={cam} size=({cap.get(cv2.CAP_PROP_FRAME_WIDTH)}x{cap.get(cv2.CAP_PROP_FRAME_HEIGHT)}) fps={cap.get(cv2.CAP_PROP_FPS)}")
+    src_fps = cap.get(cv2.CAP_PROP_FPS)
+    print(f"[producer] camera={cam} size=({cap.get(cv2.CAP_PROP_FRAME_WIDTH)}x{cap.get(cv2.CAP_PROP_FRAME_HEIGHT)}) fps={src_fps}")
 
     frame_id = 0
     try:
@@ -114,6 +115,12 @@ def producer(
                 b"h": str(h).encode(),
                 b"jpeg": jpeg,
             }
+            # Attach source FPS if known (>0)
+            try:
+                if src_fps and src_fps > 0:
+                    fields[b"fps"] = str(int(round(src_fps))).encode()
+            except Exception:
+                pass
             r.xadd(frames_stream, fields, maxlen=max_stream_len, approximate=True)
             frame_id += 1
     finally:
@@ -173,6 +180,7 @@ def worker(
                         continue
                     frame_id = b2i(fields.get(b"frame_id", b"0"))
                     ts_ns_in = b2i(fields.get(b"ts_ns", b"0"))
+                    frame_fps = b2i(fields.get(b"fps", b"0"))
                     try:
                         frame = decode_jpeg_to_bgr(jpeg)
                     except Exception:
@@ -254,6 +262,8 @@ def worker(
                         b"h": str(side.shape[0]).encode(),
                         b"jpeg": jpeg_vis,
                     }
+                    if frame_fps and frame_fps > 0:
+                        fields_out[b"fps"] = str(int(frame_fps)).encode()
                     r.xadd(results_stream, fields_out, maxlen=max_stream_len, approximate=True)
                     r.xack(frames_stream, workers_group, msg_id)
     finally:
@@ -281,10 +291,10 @@ def renderer(
     writer = None
     out_path = None
 
-    # Throttle for display
-    fps = max(1, int(fps_out)) if fps_out and fps_out > 0 else 20
-    target_dt = 1.0 / fps
-    next_frame_time = time.perf_counter() + target_dt
+    # Throttle for display; will adopt source FPS if fps_out<=0
+    fps = max(1, int(fps_out)) if fps_out and fps_out > 0 else 0
+    target_dt = 1.0 / fps if fps > 0 else 0.0
+    next_frame_time = time.perf_counter() + (target_dt if target_dt > 0 else 0.0)
 
     frames = 0
 
@@ -296,18 +306,28 @@ def renderer(
                 groupname=renderers_group,
                 consumername=consumer,
                 streams={results_stream: b">"},
-                count=1,
+                count=10,
                 block=1000,
             )
             if not resp:
                 continue
             for _stream_name, messages in resp:
-                for msg_id, fields in messages:
+                # If backlog exists, drop/ack older messages and keep only the latest to reduce lag
+                n = len(messages)
+                for idx, (msg_id, fields) in enumerate(messages):
+                    if idx < n - 1:
+                        # Ack without processing (drop frame)
+                        try:
+                            r.xack(results_stream, renderers_group, msg_id)
+                        except Exception:
+                            pass
+                        continue
                     jpeg = fields[b"jpeg"] if b"jpeg" in fields else fields["jpeg"]  # type: ignore
                     w = b2i(fields.get(b"w", b"0"))
                     h = b2i(fields.get(b"h", b"0"))
                     ts_ns_in = b2i(fields.get(b"ts_ns_in", b"0"))
                     ts_ns_out = b2i(fields.get(b"ts_ns_out", b"0"))
+                    fps_in = b2i(fields.get(b"fps", b"0"))
 
                     img = decode_jpeg_to_bgr(jpeg)
 
@@ -322,6 +342,13 @@ def renderer(
                     cv2.rectangle(img, (x - 6, y - th - 6), (x + tw + 6, y + baseline + 6), (0, 0, 0), thickness=-1)
                     cv2.putText(img, txt, (x, y), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2, cv2.LINE_AA)
 
+                    # Adopt source FPS if fps_out was not specified
+                    if (fps_out is None or fps_out <= 0) and fps == 0:
+                        if fps_in and fps_in > 0:
+                            fps = int(fps_in)
+                            target_dt = 1.0 / max(1, fps)
+                            next_frame_time = time.perf_counter() + target_dt
+
                     # Init writer lazily
                     if save and writer is None:
                         out_dir = Path("outputs")
@@ -329,7 +356,7 @@ def renderer(
                         ts_tag = time.strftime("%Y%m%d_%H%M%S")
                         out_path = out_dir / f"stream_{ts_tag}.mp4"
                         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-                        writer = cv2.VideoWriter(str(out_path), fourcc, fps, (img.shape[1], img.shape[0]))
+                        writer = cv2.VideoWriter(str(out_path), fourcc, (fps if fps > 0 else 30), (img.shape[1], img.shape[0]))
 
                     if save and writer is not None:
                         writer.write(img)
@@ -341,9 +368,14 @@ def renderer(
                         disp = img if scale >= 0.999 else cv2.resize(img, (int(sw * scale), int(sh * scale)), interpolation=cv2.INTER_AREA)
                         cv2.imshow("Drone tracking (stream)", disp)
                         now2 = time.perf_counter()
-                        delay_ms = int(max(0.0, (next_frame_time - now2)) * 1000)
-                        key = cv2.waitKey(max(1, delay_ms)) & 0xFF
-                        next_frame_time += target_dt
+                        # If backlog was present (n>1) or E2E latency high, minimize delay to catch up
+                        catching_up = (n > 1) or (e2e_ms > 500.0)
+                        if target_dt > 0 and not catching_up:
+                            delay_ms = int(max(0.0, (next_frame_time - now2)) * 1000)
+                            key = cv2.waitKey(max(1, delay_ms)) & 0xFF
+                            next_frame_time += target_dt
+                        else:
+                            key = cv2.waitKey(1) & 0xFF
                         if key in (27, ord("q")):
                             if stop_event is not None:
                                 stop_event.set()
