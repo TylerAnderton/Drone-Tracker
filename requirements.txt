@@ -2,3 +2,4 @@ ultralytics
 opencv-python
 numpy
 pyyaml
+redis>=4.3

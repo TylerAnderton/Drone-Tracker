@@ -53,8 +53,8 @@ pip install -r requirements.txt
 See `config/runtime.yaml` for default thresholds and runtime parameters.
 
 ## Structure
-  
-  ```
+
+```
 docs/
   design.md
   calibration.md
@@ -76,6 +76,7 @@ src/
     mapping.py
   app/
     run_demo.py
+    run_streaming.py
     metrics.py
     frames_to_video.py
 deploy/
@@ -89,26 +90,57 @@ config/
 utils/
   profiling.py
   geometry.py
-  ```
+```
 
 Recommended commands using the new entry points:
-  
-  ```bash
-  # 1) (Optional) Convert Anti-UAV frame folders to MP4 for quick testing
-  python -m src.app.frames_to_video --input "/data/Anti-UAV-RGBT/<seq>/visible/*.jpg" --fps 25
-  
-  # 2) Export FP16 TensorRT engine
-  python -m deploy.trt.export --half
-  
-  # 3) Run the end-to-end demo (PyTorch or TensorRT)
-  python -m src.app.run_demo --source outputs/<seq>.mp4 --save
-  python -m src.app.run_demo --model models/export/yolov8n.engine --source outputs/<seq>.mp4 --save
-  
-  # 4) Benchmark detect/track latency
-  python -m src.app.metrics --source outputs/<seq>.mp4 --mode detect
-  python -m src.app.metrics --model models/export/yolov8n.engine --source outputs/<seq>.mp4 --mode track
-  ```
+
+```bash
+# 1) (Optional) Convert Anti-UAV frame folders to MP4 for quick testing
+python -m src.app.frames_to_video --input "/data/Anti-UAV-RGBT/<seq>/visible/*.jpg" --fps 25
+
+# 2) Export FP16 TensorRT engine
+python -m deploy.trt.export --half
+
+# 3) Run the end-to-end demo (PyTorch or TensorRT)
+python -m src.app.run_demo --source outputs/<seq>.mp4 --save
+python -m src.app.run_demo --model models/export/yolov8n.engine --source outputs/<seq>.mp4 --save
+
+# 4) Benchmark detect/track latency
+python -m src.app.metrics --source outputs/<seq>.mp4 --mode detect
+python -m src.app.metrics --model models/export/yolov8n.engine --source outputs/<seq>.mp4 --mode track
 
 Notes:
 - Ensure NVIDIA drivers, CUDA, and TensorRT are installed for `.engine` inference.
 - Use Anti-UAV frames for INT8 calibration later if needed.
+  ## Live Streaming (Redis Streams)
+
+Minimal 3-stage app on localhost using Redis Streams.
+
+- **Producer**: Webcam → `video:frames`
+- **Worker**: YOLO inference → `video:results`
+- **Renderer**: display + save MP4
+
+### 1) Install Redis (Ubuntu)
+```bash
+sudo apt update && sudo apt install -y redis-server
+sudo systemctl enable --now redis-server
+redis-cli PING  # -> PONG
+```
+
+### 2) Run the streaming demo (all roles)
+```bash
+python -m src.app.run_streaming
+```
+### 3) Run roles separately (optional)
+```bash
+# A: Producer
+python -m src.app.run_streaming --role producer
+# B: Worker
+python -m src.app.run_streaming --role worker
+# C: Renderer
+python -m src.app.run_streaming --role renderer
+```
+### What you'll see
+- **Side-by-side**: input | annotated with boxes and yaw/pitch
+- **Latency overlays**: worker pipeline time, and end-to-end (capture→render)
+- **Saved video**: `outputs/stream_<timestamp>.mp4` when `--save` is used
