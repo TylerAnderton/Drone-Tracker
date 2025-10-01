@@ -1,5 +1,6 @@
 from pathlib import Path
 from typing import Iterator, Optional
+import os
 from ultralytics import YOLO
 
 
@@ -25,7 +26,7 @@ class YoloDetector:
 
     def track(
         self,
-        source: str,
+        source,
         imgsz: int = 640,
         conf: float = 0.25,
         iou: float = 0.45,
@@ -33,8 +34,13 @@ class YoloDetector:
         save: bool = False,
         persist: bool = True,
     ) -> Iterator:
+        # Allow path-like, webcam index, generator/iterable of frames, etc.
+        if isinstance(source, (str, os.PathLike, Path)):
+            src = Path(source).as_posix()
+        else:
+            src = source
         return self.model.track(
-            source=Path(source).as_posix(),
+            source=src,
             imgsz=imgsz,
             conf=conf,
             iou=iou,
